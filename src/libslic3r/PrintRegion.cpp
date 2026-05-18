@@ -7,7 +7,11 @@ namespace Slic3r {
 unsigned int PrintRegion::extruder(FlowRole role) const
 {
     size_t extruder = 0;
-    if (role == frPerimeter || role == frExternalPerimeter)
+    if (role == frExternalPerimeter) {
+        // Outer perimeters may be assigned to a separate toolhead via outer_wall_filament.
+        extruder = m_config.outer_wall_filament.value > 0 ? m_config.outer_wall_filament : m_config.wall_filament;
+    }
+    else if (role == frPerimeter)
         extruder = m_config.wall_filament;
     else if (role == frInfill)
         extruder = m_config.sparse_infill_filament;
@@ -42,10 +46,21 @@ Flow PrintRegion::flow(const PrintObject &object, FlowRole role, double layer_he
 
     if (config_width.value == 0)
         config_width = object.config().line_width;
-    
+
+    // Resolve which 1-based extruder will print this feature.
+    unsigned int extruder_id = this->extruder(role);
     // Get the configured nozzle_diameter for the extruder associated to the flow role requested.
     // Here this->extruder(role) - 1 may underflow to MAX_INT, but then the get_at() will follback to zero'th element, so everything is all right.
-    auto nozzle_diameter = float(print_config.nozzle_diameter.get_at(this->extruder(role) - 1));
+    auto nozzle_diameter = float(print_config.nozzle_diameter.get_at(extruder_id - 1));
+
+    // Per-extruder line width override (printer-level). When > 0 for this extruder,
+    // it replaces the per-feature line width with an absolute mm value.
+    if (extruder_id > 0 && extruder_id - 1 < print_config.extruder_line_width.values.size()) {
+        double override_w = print_config.extruder_line_width.get_at(extruder_id - 1);
+        if (override_w > 0)
+            config_width = ConfigOptionFloatOrPercent(override_w, false);
+    }
+
     return Flow::new_from_config_width(role, config_width, nozzle_diameter, float(layer_height));
 }
 

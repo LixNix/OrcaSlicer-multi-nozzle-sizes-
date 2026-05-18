@@ -4685,6 +4685,20 @@ void PrintConfigDef::init_fff_params()
     def->max = 100;
     def->set_default_value(new ConfigOptionFloats { 0.4 });
 
+    def = this->add("extruder_line_width", coFloats);
+    def->label = L("Line width override");
+    def->tooltip = L("Per-extruder line width override. When set to a value greater than 0, "
+                     "every feature printed by this extruder will use this absolute line width "
+                     "instead of the print profile's per-feature widths. Useful for toolchangers "
+                     "with different nozzle sizes (e.g. set 0.2 for the 0.2 mm nozzle toolhead "
+                     "and 0.8 for the 0.8 mm one). Set to 0 to disable and fall back to the "
+                     "print profile values.");
+    def->sidetext = L("mm");
+    def->mode = comAdvanced;
+    def->min = 0;
+    def->max = 10;
+    def->set_default_value(new ConfigOptionFloats { 0.0 });
+
     def = this->add("notes", coString);
     def->label = L("Configuration notes");
     def->tooltip = L("You can put here your personal notes. This text will be added to the G-code "
@@ -7141,7 +7155,7 @@ void PrintConfigDef::init_extruder_option_keys()
 {
     // ConfigOptionFloats, ConfigOptionPercents, ConfigOptionBools, ConfigOptionStrings
     m_extruder_option_keys = {
-        "extruder_type", "nozzle_diameter", "default_nozzle_volume_type", "min_layer_height", "max_layer_height", "extruder_offset",
+        "extruder_type", "nozzle_diameter", "extruder_line_width", "default_nozzle_volume_type", "min_layer_height", "max_layer_height", "extruder_offset",
         "extruder_printable_height", "nozzle_volume", "nozzle_type", "nozzle_flush_dataset",
         "retraction_length", "z_hop", "z_hop_types", "travel_slope", "retract_lift_above", "retract_lift_below", "retract_lift_enforce", "retraction_speed", "deretraction_speed",
         "retract_before_wipe", "retract_restart_extra", "retraction_minimum_travel", "wipe", "wipe_distance",
