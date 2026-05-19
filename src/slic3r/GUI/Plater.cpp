@@ -1647,10 +1647,15 @@ Sidebar::Sidebar(Plater *parent)
 {
     Choice::register_dynamic_list("support_filament", &dynamic_filament_list);
     Choice::register_dynamic_list("support_interface_filament", &dynamic_filament_list);
-    Choice::register_dynamic_list("wall_filament", &dynamic_filament_list_1_based);
+    // wall_filament / sparse_infill_filament / solid_infill_filament accept a "Default" (0)
+    // entry so per-object overrides can inherit the print preset's value rather than being
+    // forced to pick an explicit filament index.
+    Choice::register_dynamic_list("wall_filament", &dynamic_filament_list);
     Choice::register_dynamic_list("outer_wall_filament", &dynamic_filament_list);
-    Choice::register_dynamic_list("sparse_infill_filament", &dynamic_filament_list_1_based);
-    Choice::register_dynamic_list("solid_infill_filament", &dynamic_filament_list_1_based);
+    Choice::register_dynamic_list("sparse_infill_filament", &dynamic_filament_list);
+    Choice::register_dynamic_list("solid_infill_filament", &dynamic_filament_list);
+    Choice::register_dynamic_list("top_surface_filament", &dynamic_filament_list);
+    Choice::register_dynamic_list("bottom_surface_filament", &dynamic_filament_list);
     Choice::register_dynamic_list("wipe_tower_filament", &dynamic_filament_list);
 
     p->scrolled = new wxPanel(this);
@@ -4914,7 +4919,7 @@ Plater::priv::priv(Plater *q, MainFrame *main_frame)
         "extruder_colour", "filament_colour", "filament_type", "material_colour", "printable_height", "extruder_printable_height", "printer_model", "printer_technology",
         // These values are necessary to construct SlicingParameters by the Canvas3D variable layer height editor.
         "layer_height", "initial_layer_print_height", "min_layer_height", "max_layer_height",
-        "wall_loops", "wall_filament", "outer_wall_filament", "sparse_infill_density", "sparse_infill_filament", "top_shell_layers",
+        "wall_loops", "wall_filament", "outer_wall_filament", "sparse_infill_density", "sparse_infill_filament", "top_surface_filament", "bottom_surface_filament", "enable_per_feature_filament", "top_shell_layers",
         "enable_support", "support_filament", "support_interface_filament",
         "support_top_z_distance", "support_bottom_z_distance", "raft_layers",
         "wipe_tower_rotation_angle", "wipe_tower_cone_angle", "wipe_tower_extra_spacing", "wipe_tower_extra_flow", "wipe_tower_max_purge_speed",
@@ -16612,6 +16617,8 @@ void Plater::on_config_change(const DynamicPrintConfig &config)
         // Orca: update when *_filament changed
         else if (opt_key == "support_interface_filament" || opt_key == "support_filament" || opt_key == "wall_filament" ||
                  opt_key == "outer_wall_filament" ||
+                 opt_key == "top_surface_filament" || opt_key == "bottom_surface_filament" ||
+                 opt_key == "enable_per_feature_filament" ||
                  opt_key == "sparse_infill_filament" || opt_key == "solid_infill_filament") {
             update_scheduled = true;
         }

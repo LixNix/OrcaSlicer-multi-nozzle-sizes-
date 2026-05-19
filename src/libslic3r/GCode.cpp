@@ -4876,10 +4876,13 @@ LayerResult GCode::process_layer(
                 // It is also necessary to save which extrusions are part of MM wiping and which are not.
                 // The process is almost the same for perimeters and infills - we will do it in a cycle that repeats twice:
 
-                // Check if outer walls should use a different extruder than inner walls
+                // Check if outer walls should use a different extruder than inner walls.
+                // Honoured only when the per-feature filament feature is enabled.
                 unsigned int outer_wall_ext = layer_tools.outer_wall_filament(region);
                 unsigned int inner_wall_ext = layer_tools.wall_filament(region);
-                bool split_walls = (outer_wall_ext != inner_wall_ext) && (region.config().outer_wall_filament.value > 0);
+                bool split_walls = region.config().enable_per_feature_filament.value &&
+                                   (outer_wall_ext != inner_wall_ext) &&
+                                   (region.config().outer_wall_filament.value > 0);
 
                 std::vector<unsigned int> printing_extruders;
                 for (const ObjectByExtruder::Island::Region::Type entity_type : { ObjectByExtruder::Island::Region::INFILL, ObjectByExtruder::Island::Region::PERIMETERS }) {

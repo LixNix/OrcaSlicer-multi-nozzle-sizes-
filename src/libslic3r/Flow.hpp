@@ -19,6 +19,7 @@ enum FlowRole {
     frInfill,
     frSolidInfill,
     frTopSolidInfill,
+    frBottomSurface,
     frSupportMaterial,
     frSupportMaterialInterface,
     frSupportTransition,  // BBS

@@ -1150,6 +1150,10 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloatsNullable, filament_ironing_speed))
     // Detect bridging perimeters
     ((ConfigOptionBool, detect_overhang_wall))
+    // Master toggle for the per-feature filament feature (outer_wall_filament,
+    // top_surface_filament, bottom_surface_filament). When false, those overrides are
+    // ignored at slicing time and all features fall back to wall_filament / solid_infill_filament.
+    ((ConfigOptionBool, enable_per_feature_filament))
     ((ConfigOptionInt, wall_filament))
     ((ConfigOptionInt, outer_wall_filament))
     ((ConfigOptionFloatOrPercent, inner_wall_line_width))
@@ -1159,6 +1163,8 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionBool, alternate_extra_wall))
     ((ConfigOptionFloat, minimum_sparse_infill_area))
     ((ConfigOptionInt, solid_infill_filament))
+    ((ConfigOptionInt, top_surface_filament))
+    ((ConfigOptionInt, bottom_surface_filament))
     ((ConfigOptionFloatOrPercent, internal_solid_infill_line_width))
     ((ConfigOptionFloat, internal_solid_infill_speed))
     // Detect thin walls.

@@ -708,8 +708,16 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
     toggle_field("brim_width", have_brim_width);
     toggle_field("brim_flow_ratio", have_brim);
     // wall_filament uses the same logic as in Print::extruders()
-    toggle_field("wall_filament", have_perimeters || have_brim);
-    toggle_field("outer_wall_filament", have_perimeters);
+    // Every per-feature filament dropdown is gated by the master toggle.
+    {
+        const bool per_feature = config->opt_bool("enable_per_feature_filament");
+        toggle_field("wall_filament", per_feature && (have_perimeters || have_brim));
+        toggle_field("sparse_infill_filament", per_feature);
+        toggle_field("solid_infill_filament", per_feature);
+        toggle_field("outer_wall_filament", per_feature && have_perimeters);
+        toggle_field("top_surface_filament", per_feature && config->opt_int("top_shell_layers") > 0);
+        toggle_field("bottom_surface_filament", per_feature && config->opt_int("bottom_shell_layers") > 0);
+    }
 
     bool have_brim_ear = (config->opt_enum<BrimType>("brim_type") == btEar);
     const auto brim_width = config->opt_float("brim_width");
@@ -833,8 +841,16 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
     toggle_line("enable_tower_interface_cooldown_during_tower",
                 have_prime_tower && config->opt_bool("enable_tower_interface_features"));
 
-    for (auto el : {"wall_filament", "outer_wall_filament", "sparse_infill_filament", "solid_infill_filament", "wipe_tower_filament"})
+    // The toggle and the wipe-tower selector stay visible whenever the printer is multi-material;
+    // every other per-feature filament row is hidden unless the toggle is on.
+    for (auto el : {"wipe_tower_filament", "enable_per_feature_filament"})
         toggle_line(el, !bSEMM);
+    {
+        const bool per_feature_visible = !bSEMM && config->opt_bool("enable_per_feature_filament");
+        for (auto el : {"wall_filament", "sparse_infill_filament", "solid_infill_filament",
+                        "outer_wall_filament", "top_surface_filament", "bottom_surface_filament"})
+            toggle_line(el, per_feature_visible);
+    }
 
     bool purge_in_primetower = preset_bundle->printers.get_edited_preset().config.opt_bool("purge_in_prime_tower");
 

@@ -316,9 +316,12 @@ std::vector<std::set<int>> PrintObject::detect_extruder_geometric_unprintables()
                 continue;
             for (auto layerm : layer->regions()) {
                 auto region = layerm->region();
+                const bool per_feature = region.config().enable_per_feature_filament.value;
                 int wall_filament = region.config().wall_filament;
-                int outer_wall_filament = region.config().outer_wall_filament;
+                int outer_wall_filament = per_feature ? region.config().outer_wall_filament : 0;
                 int solid_infill_filament = region.config().solid_infill_filament;
+                int top_surface_filament = per_feature ? region.config().top_surface_filament : 0;
+                int bottom_surface_filament = per_feature ? region.config().bottom_surface_filament : 0;
                 int sparse_infill_filament = region.config().sparse_infill_filament;
 
                 if (!layerm->fills.entities.empty()) {
@@ -326,6 +329,10 @@ std::vector<std::set<int>> PrintObject::detect_extruder_geometric_unprintables()
                         geometric_unprintables[extruder_id].insert(solid_infill_filament - 1);
                     if (sparse_infill_filament > 0)
                         geometric_unprintables[extruder_id].insert(sparse_infill_filament - 1);
+                    if (top_surface_filament > 0)
+                        geometric_unprintables[extruder_id].insert(top_surface_filament - 1);
+                    if (bottom_surface_filament > 0)
+                        geometric_unprintables[extruder_id].insert(bottom_surface_filament - 1);
                 }
                 if (!layerm->perimeters.entities.empty()) {
                     if (wall_filament > 0)
@@ -357,8 +364,11 @@ std::vector<std::set<int>> PrintObject::detect_extruder_geometric_unprintables()
                 auto layer = m_layers[j];
                 for (auto layerm : layer->regions()) {
                     const auto& region = layerm->region();
+                    const bool per_feature = region.config().enable_per_feature_filament.value;
                     int wall_filament = region.config().wall_filament;
                     int solid_infill_filament = region.config().solid_infill_filament;
+                    int top_surface_filament = per_feature ? region.config().top_surface_filament : 0;
+                    int bottom_surface_filament = per_feature ? region.config().bottom_surface_filament : 0;
                     int sparse_infill_filament = region.config().sparse_infill_filament;
                     std::optional<ExPolygons> fill_expolys;
                     BoundingBox fill_bbox;
@@ -367,11 +377,15 @@ std::vector<std::set<int>> PrintObject::detect_extruder_geometric_unprintables()
 
                     for (size_t idx = 0; idx < unprintable_area_in_obj_coord.size(); ++idx) {
                         bool do_infill_filament_detect = (solid_infill_filament > 0 && tbb_geometric_unprintables[idx].count(solid_infill_filament - 1) == 0) ||
-                            (sparse_infill_filament > 0 && tbb_geometric_unprintables[idx].count(sparse_infill_filament-1) == 0);
+                            (sparse_infill_filament > 0 && tbb_geometric_unprintables[idx].count(sparse_infill_filament-1) == 0) ||
+                            (top_surface_filament > 0 && tbb_geometric_unprintables[idx].count(top_surface_filament - 1) == 0) ||
+                            (bottom_surface_filament > 0 && tbb_geometric_unprintables[idx].count(bottom_surface_filament - 1) == 0);
 
                         bool infill_unprintable = !layerm->fills.entities.empty() &&
                             ((solid_infill_filament > 0 && tbb_geometric_unprintables[idx].count(solid_infill_filament - 1) > 0) ||
-                                (sparse_infill_filament > 0 && tbb_geometric_unprintables[idx].count(sparse_infill_filament - 1) > 0));
+                                (sparse_infill_filament > 0 && tbb_geometric_unprintables[idx].count(sparse_infill_filament - 1) > 0) ||
+                                (top_surface_filament > 0 && tbb_geometric_unprintables[idx].count(top_surface_filament - 1) > 0) ||
+                                (bottom_surface_filament > 0 && tbb_geometric_unprintables[idx].count(bottom_surface_filament - 1) > 0));
 
                         if (!layerm->fills.entities.empty() && do_infill_filament_detect) {
                             if (!fill_expolys) {
@@ -384,6 +398,10 @@ std::vector<std::set<int>> PrintObject::detect_extruder_geometric_unprintables()
                                     tbb_geometric_unprintables[idx].insert(solid_infill_filament - 1);
                                 if (sparse_infill_filament > 0)
                                     tbb_geometric_unprintables[idx].insert(sparse_infill_filament - 1);
+                                if (top_surface_filament > 0)
+                                    tbb_geometric_unprintables[idx].insert(top_surface_filament - 1);
+                                if (bottom_surface_filament > 0)
+                                    tbb_geometric_unprintables[idx].insert(bottom_surface_filament - 1);
                                 infill_unprintable = true;
                             }
                         }
@@ -1329,6 +1347,9 @@ bool PrintObject::invalidate_state_by_config_options(
                opt_key == "outer_wall_line_width"
             || opt_key == "wall_filament"
             || opt_key == "outer_wall_filament"
+            || opt_key == "top_surface_filament"
+            || opt_key == "bottom_surface_filament"
+            || opt_key == "enable_per_feature_filament"
             || opt_key == "fuzzy_skin"
             || opt_key == "fuzzy_skin_thickness"
             || opt_key == "fuzzy_skin_point_distance"
@@ -3383,6 +3404,24 @@ static void clamp_exturder_to_default(ConfigOptionInt &opt, size_t num_extruders
         opt.value = 1;
 }
 
+// Same as clamp_exturder_to_default but also promotes 0 (the "Default" UI value) to extruder 1.
+// Use only for filament keys that must always reference a real extruder at slicing time
+// (wall_filament, sparse_infill_filament, solid_infill_filament). Per-feature override keys
+// where 0 is a meaningful sentinel meaning "follow another filament" must NOT use this helper.
+static void clamp_extruder_or_default(ConfigOptionInt &opt, size_t num_extruders)
+{
+    if (opt.value <= 0 || opt.value > (int)num_extruders)
+        opt.value = 1;
+}
+
+// For optional override keys (outer_wall_filament, top/bottom_surface_filament): clamp
+// out-of-range values back to 0 (= fall through to wall_filament / solid_infill_filament).
+static void clamp_optional_extruder(ConfigOptionInt &opt, size_t num_extruders)
+{
+    if (opt.value < 0 || opt.value > (int)num_extruders)
+        opt.value = 0;
+}
+
 PrintObjectConfig PrintObject::object_config_from_model_object(const PrintObjectConfig &default_object_config, const ModelObject &object, size_t num_extruders)
 {
     PrintObjectConfig config = default_object_config;
@@ -3398,39 +3437,68 @@ PrintObjectConfig PrintObject::object_config_from_model_object(const PrintObject
 }
 
 const std::string                                                    key_extruder { "extruder" };
-static constexpr const std::initializer_list<const std::string_view> keys_extruders { "sparse_infill_filament"sv, "solid_infill_filament"sv, "wall_filament"sv };
+// Filament keys for which a value of 0 means "inherit from the parent config" rather than
+// "explicitly set to filament 0". Per-object overrides written as 0 must not overwrite the
+// print preset's value, which was the source of the global-vs-object propagation bug for
+// outer_wall_filament, top_surface_filament and bottom_surface_filament prior to this entry
+// being expanded.
+static constexpr const std::initializer_list<const std::string_view> keys_extruders {
+    "sparse_infill_filament"sv,
+    "solid_infill_filament"sv,
+    "wall_filament"sv,
+    "outer_wall_filament"sv,
+    "top_surface_filament"sv,
+    "bottom_surface_filament"sv,
+};
 
 static void apply_to_print_region_config(PrintRegionConfig &out, const DynamicPrintConfig &in)
 {
-    // 1) Map legacy "extruder" to feature filament keys as a fallback only.
-    // If any feature-specific filament is explicitly set, keep those values.
-    auto *opt_extruder = in.opt<ConfigOptionInt>(key_extruder);
-    auto *opt_sparse_infill_filament = in.opt<ConfigOptionInt>("sparse_infill_filament");
-    auto *opt_solid_infill_filament  = in.opt<ConfigOptionInt>("solid_infill_filament");
-    auto *opt_wall_filament          = in.opt<ConfigOptionInt>("wall_filament");
-    const bool has_feature_filament_override =
-        (opt_sparse_infill_filament != nullptr && opt_sparse_infill_filament->value > 0) ||
-        (opt_solid_infill_filament  != nullptr && opt_solid_infill_filament->value > 0) ||
-        (opt_wall_filament          != nullptr && opt_wall_filament->value > 0);
-    if (opt_extruder)
-        if (int extruder = opt_extruder->value; extruder > 1 && ! has_feature_filament_override) {
-            // Not a default extruder.
-            out.sparse_infill_filament.value = extruder;
-            out.solid_infill_filament.value  = extruder;
-            out.wall_filament.value          = extruder;
-        }
-    // 2) Copy the rest of the values.
+    // Resolve the effective per-feature-filament toggle for this apply scope: if `in`
+    // overrides it, use the override; otherwise inherit from the parent (`out`). The
+    // toggle is consulted again — once — at the end of region_config_from_model_volume
+    // to actually enforce "ignore per-feature filaments when off"; we MUST NOT zero out
+    // any filament keys here because apply_to_print_region_config is called multiple
+    // times per region (object config, then volume config, then material, …) and a
+    // subsequent call with no `extruder` key would otherwise wipe out values populated
+    // by an earlier call.
+    auto *opt_per_feature = in.opt<ConfigOptionBool>("enable_per_feature_filament");
+    const bool effective_per_feature = (opt_per_feature != nullptr) ? opt_per_feature->value
+                                                                    : out.enable_per_feature_filament.value;
+
+    // 1) Copy values from `in` to `out`.
+    //    A per-feature filament key present in `in` is an explicit override even when its
+    //    value is 0 ("Default") — that's how the user says "use the object's colour for this
+    //    feature, regardless of what the preset has". Keys NOT present in `in` are left alone
+    //    so they inherit from `out` (the parent / preset).
+    //    When the per-feature toggle is OFF in this scope, every per-feature filament key is
+    //    ignored so stored values can't sneak in past the toggle.
     for (auto it = in.cbegin(); it != in.cend(); ++ it)
         if (it->first != key_extruder)
             if (ConfigOption* my_opt = out.option(it->first, false); my_opt != nullptr) {
                 if (one_of(it->first, keys_extruders)) {
-                    // Ignore "default" extruders.
-                    int extruder = static_cast<const ConfigOptionInt*>(it->second.get())->value;
-                    if (extruder > 0)
+                    if (effective_per_feature) {
+                        int extruder = static_cast<const ConfigOptionInt*>(it->second.get())->value;
                         my_opt->setInt(extruder);
+                    }
                 } else
                     my_opt->set(it->second.get());
             }
+
+    // 2) Legacy "extruder" key (the object's colour) populates ONLY the per-feature
+    //    filament keys that are still at "Default" (0). Previously this step
+    //    unconditionally overwrote any preset value, which is what caused the
+    //    width/routing bug where a globally-configured solid_infill_filament was
+    //    silently replaced by the object's colour.
+    auto *opt_extruder = in.opt<ConfigOptionInt>(key_extruder);
+    if (opt_extruder)
+        if (int extruder = opt_extruder->value; extruder >= 1) {
+            if (out.wall_filament.value <= 0)
+                out.wall_filament.value = extruder;
+            if (out.sparse_infill_filament.value <= 0)
+                out.sparse_infill_filament.value = extruder;
+            if (out.solid_infill_filament.value <= 0)
+                out.solid_infill_filament.value = extruder;
+        }
 }
 
 PrintRegionConfig region_config_from_model_volume(const PrintRegionConfig &default_or_parent_region_config, const DynamicPrintConfig *layer_range_config, const ModelVolume &volume, size_t num_extruders)
@@ -3451,10 +3519,46 @@ PrintRegionConfig region_config_from_model_volume(const PrintRegionConfig &defau
         assert(volume.is_model_part());
     	apply_to_print_region_config(config, *layer_range_config);
     }
+
+    // When the per-feature filament feature is OFF, ignore any stored wall / infill / solid /
+    // outer / top / bottom filament values and force every feature to use the object's colour
+    // (= the most specific "extruder" key in the volume/object chain). This has to happen here
+    // rather than inside apply_to_print_region_config because that helper runs once per scope
+    // (object, volume, material, …) and only the first scope has the object's "extruder" key —
+    // zeroing inside the helper would let a subsequent scope without "extruder" leave the
+    // values at 0 and the clamp below would promote them to 1 (== black for most users).
+    if (!config.enable_per_feature_filament.value) {
+        int object_extruder = 0;
+        auto pick = [&object_extruder](const DynamicPrintConfig &cfg) {
+            if (auto *opt = cfg.opt<ConfigOptionInt>(key_extruder); opt != nullptr && opt->value > 0)
+                object_extruder = opt->value;
+        };
+        // Most-specific wins: volume > object.
+        if (volume.is_model_part())
+            pick(volume.get_object()->config.get());
+        pick(volume.config.get());
+        if (object_extruder < 1)
+            object_extruder = 1;
+        config.wall_filament.value           = object_extruder;
+        config.sparse_infill_filament.value  = object_extruder;
+        config.solid_infill_filament.value   = object_extruder;
+        config.outer_wall_filament.value     = 0;
+        config.top_surface_filament.value    = 0;
+        config.bottom_surface_filament.value = 0;
+    }
+
     // Clamp invalid extruders to the default extruder (with index 1).
-    clamp_exturder_to_default(config.sparse_infill_filament,       num_extruders);
-    clamp_exturder_to_default(config.wall_filament,    num_extruders);
-    clamp_exturder_to_default(config.solid_infill_filament, num_extruders);
+    // These three must reference real extruders at slicing time; promote 0 (the "Default"
+    // UI value) to extruder 1 here so downstream asserts (ToolOrdering, GCode) hold.
+    clamp_extruder_or_default(config.sparse_infill_filament, num_extruders);
+    clamp_extruder_or_default(config.wall_filament,          num_extruders);
+    clamp_extruder_or_default(config.solid_infill_filament,  num_extruders);
+    // outer_wall_filament / top_surface_filament / bottom_surface_filament use 0 as a
+    // meaningful sentinel ("fall back to wall_filament / solid_infill_filament") and must
+    // not be promoted; only clamp out-of-range values back to 0.
+    clamp_optional_extruder(config.outer_wall_filament,     num_extruders);
+    clamp_optional_extruder(config.top_surface_filament,    num_extruders);
+    clamp_optional_extruder(config.bottom_surface_filament, num_extruders);
     if (config.sparse_infill_density.value < 0.00011f)
         // Switch of infill for very low infill rates, also avoid division by zero in infill generator for these very low rates.
         // See GH issue #5910.

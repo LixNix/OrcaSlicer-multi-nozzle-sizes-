@@ -90,9 +90,10 @@ unsigned int LayerTools::outer_wall_filament(const PrintRegion &region) const
 {
 	if (this->extruder_override != 0)
 		return this->extruder_override - 1;
-	// outer_wall_filament == 0 means "use same as wall_filament"
+	// outer_wall_filament == 0, or the per-feature feature being disabled globally, both
+	// mean "use same as wall_filament".
 	int owf = region.config().outer_wall_filament.value;
-	if (owf <= 0)
+	if (owf <= 0 || ! region.config().enable_per_feature_filament.value)
 		return region.config().wall_filament.value - 1;
 	return owf - 1;
 }
@@ -109,6 +110,26 @@ unsigned int LayerTools::solid_infill_filament(const PrintRegion &region) const
 	return ((this->extruder_override == 0) ? region.config().solid_infill_filament.value : this->extruder_override) - 1;
 }
 
+unsigned int LayerTools::top_surface_filament(const PrintRegion &region) const
+{
+	if (this->extruder_override != 0)
+		return this->extruder_override - 1;
+	int tsf = region.config().top_surface_filament.value;
+	if (tsf <= 0 || ! region.config().enable_per_feature_filament.value)
+		return region.config().solid_infill_filament.value - 1;
+	return tsf - 1;
+}
+
+unsigned int LayerTools::bottom_surface_filament(const PrintRegion &region) const
+{
+	if (this->extruder_override != 0)
+		return this->extruder_override - 1;
+	int bsf = region.config().bottom_surface_filament.value;
+	if (bsf <= 0 || ! region.config().enable_per_feature_filament.value)
+		return region.config().solid_infill_filament.value - 1;
+	return bsf - 1;
+}
+
 // Returns a zero based extruder this eec should be printed with, according to PrintRegion config or extruder_override if overriden.
 unsigned int LayerTools::extruder(const ExtrusionEntityCollection &extrusions, const PrintRegion &region) const
 {
@@ -116,10 +137,19 @@ unsigned int LayerTools::extruder(const ExtrusionEntityCollection &extrusions, c
 	assert(region.config().sparse_infill_filament.value > 0);
 	assert(region.config().solid_infill_filament.value > 0);
 	// 1 based extruder ID.
+    const bool per_feature = region.config().enable_per_feature_filament.value;
     unsigned int extruder = 1;
     if (this->extruder_override == 0) {
         if (extrusions.has_infill()) {
-            if (extrusions.has_solid_infill())
+            // Per-surface fill collections carry entities of a single role; peek at the front
+            // entity to distinguish outermost top / bottom surfaces (which can be routed to
+            // dedicated extruders) from internal solid and sparse infill.
+            ExtrusionRole role = extrusions.entities.empty() ? erNone : extrusions.entities.front()->role();
+            if (per_feature && role == erTopSolidInfill && region.config().top_surface_filament.value > 0)
+                extruder = region.config().top_surface_filament;
+            else if (per_feature && role == erBottomSurface && region.config().bottom_surface_filament.value > 0)
+                extruder = region.config().bottom_surface_filament;
+            else if (extrusions.has_solid_infill())
                 extruder = region.config().solid_infill_filament;
             else
                 extruder = region.config().sparse_infill_filament;
@@ -694,8 +724,10 @@ void ToolOrdering::collect_extruders(const PrintObject &object, const std::vecto
 
                 if (something_nonoverriddable){
                		layer_tools.extruders.emplace_back((extruder_override == 0) ? region.config().wall_filament.value : extruder_override);
-                    // Also register the outer wall extruder if it differs from inner wall
-                    if (extruder_override == 0 && region.config().outer_wall_filament.value > 0 &&
+                    // Also register the outer wall extruder if it differs from inner wall and the
+                    // per-feature filament feature is enabled.
+                    if (extruder_override == 0 && region.config().enable_per_feature_filament.value &&
+                        region.config().outer_wall_filament.value > 0 &&
                         region.config().outer_wall_filament.value != region.config().wall_filament.value) {
                         layer_tools.extruders.emplace_back(region.config().outer_wall_filament.value);
                     }
@@ -707,13 +739,19 @@ void ToolOrdering::collect_extruders(const PrintObject &object, const std::vecto
                 layer_tools.has_object = true;
             }
 
-            bool has_infill       = false;
-            bool has_solid_infill = false;
+            bool has_infill              = false;
+            bool has_solid_infill        = false;
+            bool has_top_surface         = false;
+            bool has_bottom_surface      = false;
             bool something_nonoverriddable = false;
             for (const ExtrusionEntity *ee : layerm->fills.entities) {
                 // fill represents infill extrusions of a single island.
                 const auto *fill = dynamic_cast<const ExtrusionEntityCollection*>(ee);
                 ExtrusionRole role = fill->entities.empty() ? erNone : fill->entities.front()->role();
+                if (role == erTopSolidInfill)
+                    has_top_surface = true;
+                else if (role == erBottomSurface)
+                    has_bottom_surface = true;
                 if (is_solid_infill(role))
                     has_solid_infill = true;
                 else if (role != erNone)
@@ -731,6 +769,16 @@ void ToolOrdering::collect_extruders(const PrintObject &object, const std::vecto
 	                    layer_tools.extruders.emplace_back(region.config().solid_infill_filament);
 	                if (has_infill)
 	                    layer_tools.extruders.emplace_back(region.config().sparse_infill_filament);
+	                // Register dedicated top/bottom surface extruders only when the per-feature
+	                // filament feature is enabled and the chosen filament differs from solid_infill_filament.
+	                if (region.config().enable_per_feature_filament.value) {
+	                    if (has_top_surface && region.config().top_surface_filament.value > 0 &&
+	                        region.config().top_surface_filament.value != region.config().solid_infill_filament.value)
+	                        layer_tools.extruders.emplace_back(region.config().top_surface_filament.value);
+	                    if (has_bottom_surface && region.config().bottom_surface_filament.value > 0 &&
+	                        region.config().bottom_surface_filament.value != region.config().solid_infill_filament.value)
+	                        layer_tools.extruders.emplace_back(region.config().bottom_surface_filament.value);
+	                }
             	} else if (has_solid_infill || has_infill)
             		layer_tools.extruders.emplace_back(extruder_override);
             }

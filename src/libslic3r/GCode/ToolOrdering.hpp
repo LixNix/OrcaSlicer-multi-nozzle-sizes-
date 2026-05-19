@@ -143,6 +143,8 @@ public:
     unsigned int outer_wall_filament(const PrintRegion &region) const;
     unsigned int sparse_infill_filament(const PrintRegion &region) const;
     unsigned int solid_infill_filament(const PrintRegion &region) const;
+    unsigned int top_surface_filament(const PrintRegion &region) const;
+    unsigned int bottom_surface_filament(const PrintRegion &region) const;
 	// Returns a zero based extruder this eec should be printed with, according to PrintRegion config or extruder_override if overriden.
 	unsigned int extruder(const ExtrusionEntityCollection &extrusions, const PrintRegion &region) const;
 

@@ -30,6 +30,7 @@ float Flow::auto_extrusion_width(FlowRole role, float nozzle_diameter)
     case frExternalPerimeter:
     case frPerimeter:
     case frSolidInfill:
+    case frBottomSurface:
     case frInfill:
         return 1.125f * nozzle_diameter;
     }
