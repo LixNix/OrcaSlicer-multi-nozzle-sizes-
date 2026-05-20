@@ -9,6 +9,7 @@
 namespace Slic3r {
 
 class PrintObject;
+class PrintConfig;
 
 // Extra spacing of bridge threads, in mm.
 #define BRIDGE_EXTRA_SPACING 0.05
@@ -144,6 +145,15 @@ extern Flow support_material_flow(const PrintObject* object, float layer_height 
 extern Flow support_transition_flow(const PrintObject *object); //BBS
 extern Flow support_material_1st_layer_flow(const PrintObject *object, float layer_height = 0.f);
 extern Flow support_material_interface_flow(const PrintObject *object, float layer_height = 0.f);
+
+// Resolve the effective line width for a feature on a multi-nozzle printer. Applies the
+// printer-level per-extruder override ("extruder_line_width", absolute mm or % of the routed
+// nozzle) and, when per-feature filaments are enabled on a printer with mixed nozzle sizes,
+// substitutes an absolute mm width with 0 so Flow derives an auto width from the routed nozzle.
+// extruder_id is 1-based; 0 (use current/first extruder) skips the override but still scales.
+extern ConfigOptionFloatOrPercent nozzle_aware_line_width(
+    const PrintConfig &print_config, bool per_feature_filament,
+    const ConfigOptionFloatOrPercent &width, unsigned int extruder_id);
 
 }
 
