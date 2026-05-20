@@ -69,10 +69,29 @@ Flow PrintRegion::flow(const PrintObject &object, FlowRole role, double layer_he
     // percentage of the routed extruder's nozzle, so "100%" makes each toolhead use
     // its own nozzle's width across all features (the common case for toolchangers
     // with mixed nozzle sizes).
+    bool overridden = false;
     if (extruder_id > 0 && extruder_id - 1 < print_config.extruder_line_width.values.size()) {
         const FloatOrPercent &override_v = print_config.extruder_line_width.get_at(extruder_id - 1);
-        if (override_v.value > 0)
+        if (override_v.value > 0) {
             config_width = ConfigOptionFloatOrPercent(override_v.value, override_v.percent);
+            overridden = true;
+        }
+    }
+
+    // When per-feature filaments are enabled on a printer that mixes nozzle sizes, a feature
+    // can be routed to a toolhead whose nozzle differs from the one the print profile's
+    // absolute line widths were tuned for. A fixed mm width (e.g. 0.42) is wrong on a 0.2 or
+    // 0.8 mm nozzle, so without an explicit per-extruder override fall back to an auto width
+    // derived from the routed nozzle. Widths expressed as a percentage already scale with the
+    // nozzle, so those are left untouched and give the user a way to keep a custom ratio across
+    // all toolheads. Printers whose nozzles are all the same size keep their profile widths.
+    if (!overridden && m_config.enable_per_feature_filament.value && !config_width.percent && config_width.value > 0) {
+        const std::vector<double> &nds = print_config.nozzle_diameter.values;
+        bool mixed_nozzles = false;
+        for (size_t i = 1; i < nds.size(); ++i)
+            if (std::abs(nds[i] - nds.front()) > EPSILON) { mixed_nozzles = true; break; }
+        if (mixed_nozzles)
+            config_width = ConfigOptionFloatOrPercent(0., false); // 0 => Flow computes an auto width from the nozzle
     }
 
     return Flow::new_from_config_width(role, config_width, nozzle_diameter, float(layer_height));
