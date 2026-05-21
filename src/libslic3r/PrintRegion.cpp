@@ -58,24 +58,30 @@ Flow PrintRegion::flow(const PrintObject &object, FlowRole role, double layer_he
     if (config_width.value == 0)
         config_width = object.config().line_width;
 
-    // Resolve which 1-based extruder will print this feature.
-    unsigned int extruder_id = this->extruder(role);
-    // Get the configured nozzle_diameter for the extruder associated to the flow role requested.
-    // Here this->extruder(role) - 1 may underflow to MAX_INT, but then the get_at() will follback to zero'th element, so everything is all right.
-    auto nozzle_diameter = float(print_config.nozzle_diameter.get_at(extruder_id - 1));
+    // Resolve which 1-based filament will print this feature, then map it to the physical
+    // extruder/nozzle that filament is assigned to (filament_map). On multi-nozzle printers
+    // (e.g. H2D/X2D) with more filaments than nozzles, nozzle_diameter and the per-extruder
+    // overrides are indexed by physical extruder, not by filament, so this mapping is required
+    // for correct per-feature line widths.
+    unsigned int filament_id       = this->extruder(role);
+    size_t       physical_extruder = physical_extruder_for_filament(print_config, filament_id);
+    auto nozzle_diameter = float(print_config.nozzle_diameter.get_at(physical_extruder));
 
     // Apply the per-extruder line-width override and the mixed-nozzle auto-width fallback.
-    // See nozzle_aware_line_width() in Flow.cpp; supports use the same helper.
-    config_width = nozzle_aware_line_width(print_config, m_config.enable_per_feature_filament.value, config_width, extruder_id);
+    // See nozzle_aware_line_width() in Flow.cpp; supports use the same helper. The override is
+    // indexed by physical extruder, so pass the 1-based physical extruder id.
+    config_width = nozzle_aware_line_width(print_config, m_config.enable_per_feature_filament.value, config_width, (unsigned int)(physical_extruder + 1));
 
     return Flow::new_from_config_width(role, config_width, nozzle_diameter, float(layer_height));
 }
 
 coordf_t PrintRegion::nozzle_dmr_avg(const PrintConfig &print_config) const
 {
-    return (print_config.nozzle_diameter.get_at(m_config.wall_filament.value    - 1) + 
-            print_config.nozzle_diameter.get_at(m_config.sparse_infill_filament.value       - 1) + 
-            print_config.nozzle_diameter.get_at(m_config.solid_infill_filament.value - 1)) / 3.;
+    // Map each filament to its physical extruder before reading the nozzle diameter, so the
+    // average is correct on multi-nozzle printers with more filaments than nozzles.
+    return (print_config.nozzle_diameter.get_at(physical_extruder_for_filament(print_config, m_config.wall_filament.value)) +
+            print_config.nozzle_diameter.get_at(physical_extruder_for_filament(print_config, m_config.sparse_infill_filament.value)) +
+            print_config.nozzle_diameter.get_at(physical_extruder_for_filament(print_config, m_config.solid_infill_filament.value))) / 3.;
 }
 
 coordf_t PrintRegion::bridging_height_avg(const PrintConfig &print_config) const
