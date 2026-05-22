@@ -1286,9 +1286,7 @@ bool Sidebar::priv::switch_diameter(bool single)
         auto diameter_left = left_extruder->combo_diameter->GetValue();
         auto diameter_right = right_extruder->combo_diameter->GetValue();
         if (diameter_left != diameter_right) {
-            // Multi-nozzle printers (e.g. Bambu H2D/X2D) support a different nozzle diameter per
-            // toolhead. Apply both selected diameters to the printer preset (left -> nozzle 0,
-            // right -> nozzle 1) instead of forcing single-head printing with one shared diameter.
+            // Allows selecting different nozzle sizes in the prepare tap for printers with AMS like systems and two or more nozzles.
             Preset& printer_preset = wxGetApp().preset_bundle->printers.get_edited_preset();
             const auto* nd = dynamic_cast<const ConfigOptionFloats*>(printer_preset.config.option("nozzle_diameter"));
             double left_val = 0., right_val = 0.;
