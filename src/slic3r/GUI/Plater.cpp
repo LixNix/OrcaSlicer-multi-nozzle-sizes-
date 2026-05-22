@@ -558,6 +558,11 @@ struct Sidebar::priv
     ScalableButton* btn_export_gcode_removable; //exports to removable drives (appears only if removable drive is connected)
 
     bool                    is_switching_diameter{false};
+    // True only while handling a genuine user interaction with a nozzle-diameter combo box.
+    // switch_diameter() is also invoked programmatically (e.g. from sync_extruder_list during
+    // device sync / printer switch); the in-place "apply different diameters" path must not run
+    // then, as modifying the printer preset mid-sync can re-enter and crash.
+    bool                    is_user_diameter_change{false};
     Search::OptionsSearcher     searcher;
     std::string ams_list_device;
 
@@ -1287,10 +1292,13 @@ bool Sidebar::priv::switch_diameter(bool single)
         auto diameter_right = right_extruder->combo_diameter->GetValue();
         if (diameter_left != diameter_right) {
             // Allows selecting different nozzle sizes in the prepare tap for printers with AMS like systems and two or more nozzles.
+            // Only do this for a genuine user combo interaction; when called programmatically (e.g. during
+            // sync_extruder_list on a printer switch) modifying the preset here can re-enter and crash.
             Preset& printer_preset = wxGetApp().preset_bundle->printers.get_edited_preset();
             const auto* nd = dynamic_cast<const ConfigOptionFloats*>(printer_preset.config.option("nozzle_diameter"));
             double left_val = 0., right_val = 0.;
-            if (nd != nullptr && nd->values.size() >= 2 &&
+            if (is_user_diameter_change &&
+                nd != nullptr && nd->values.size() >= 2 &&
                 diameter_left.ToCDouble(&left_val) && diameter_right.ToCDouble(&right_val)) {
                 std::vector<double> values = nd->values;
                 values[0] = left_val;
@@ -2096,7 +2104,9 @@ Sidebar::Sidebar(Plater *parent)
         auto switch_diameter = [this](wxCommandEvent & evt) {
             auto extruder = dynamic_cast<ExtruderGroup *>(dynamic_cast<ComboBox *>(evt.GetEventObject())->GetParent());
             p->is_switching_diameter = true;
+            p->is_user_diameter_change = true;
             p->switch_diameter(extruder == p->single_extruder);
+            p->is_user_diameter_change = false;
             p->is_switching_diameter = false;
         };
         p->left_extruder->combo_diameter->Bind(wxEVT_COMBOBOX, switch_diameter);
