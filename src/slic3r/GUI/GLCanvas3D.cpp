@@ -1218,6 +1218,9 @@ GLCanvas3D::GLCanvas3D(wxGLCanvas* canvas, Bed3D &bed)
 
 GLCanvas3D::~GLCanvas3D()
 {
+    // The owning Plater (and its NotificationManager) may already be torn down by the time this
+    // child canvas is destroyed; suppress any notification callbacks triggered by the cleanup below.
+    m_shutting_down = true;
     if (m_fxaa_texture_id != 0 && _set_current()) {
         glsafe(::glDeleteTextures(1, &m_fxaa_texture_id));
         m_fxaa_texture_id = 0;
@@ -9677,6 +9680,11 @@ void GLCanvas3D::_set_warning_notification_if_needed(EWarning warning)
 
 void GLCanvas3D::_set_warning_notification(EWarning warning, bool state)
 {
+    // Don't touch the Plater's NotificationManager while this canvas (or the app) is being torn
+    // down: during ~Plater the Plater object still exists (so plater() is non-null) but its priv,
+    // which owns the NotificationManager, has already been destroyed -> use-after-free.
+    if (m_shutting_down || wxGetApp().is_closing())
+        return;
     using NotificationLevel = NotificationManager::NotificationLevel;
     enum ErrorType{
         PLATER_WARNING,
