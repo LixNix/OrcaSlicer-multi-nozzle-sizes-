@@ -3545,6 +3545,26 @@ PrintRegionConfig region_config_from_model_volume(const PrintRegionConfig &defau
         config.outer_wall_filament.value     = 0;
         config.top_surface_filament.value    = 0;
         config.bottom_surface_filament.value = 0;
+    } else {
+        // Per-feature filaments ON: the global per-feature split (wall vs infill vs surfaces) is
+        // inherited from the preset. But when the user explicitly assigns a colour to an individual
+        // volume — e.g. a painted part or a TEXT MODIFIER — they want that whole sub-region printed
+        // in that colour, overriding the per-feature split for it. That colour is stored as the
+        // "extruder" key on the *volume's own* config (object-level colour lives on the object
+        // config and is intentionally not considered here, so it can't clobber the global
+        // per-feature filaments). Per-feature keys the volume sets itself still win.
+        const DynamicPrintConfig &vc = volume.config.get();
+        if (auto *opt = vc.opt<ConfigOptionInt>(key_extruder); opt != nullptr && opt->value >= 1) {
+            const int vol_extruder = opt->value;
+            if (! vc.has("wall_filament"))           config.wall_filament.value           = vol_extruder;
+            if (! vc.has("sparse_infill_filament"))  config.sparse_infill_filament.value  = vol_extruder;
+            if (! vc.has("solid_infill_filament"))   config.solid_infill_filament.value   = vol_extruder;
+            // Reset the surface/outer overrides so they fall back to the (now overridden) wall /
+            // solid infill filament, making the whole painted region a single colour.
+            if (! vc.has("outer_wall_filament"))     config.outer_wall_filament.value     = 0;
+            if (! vc.has("top_surface_filament"))    config.top_surface_filament.value    = 0;
+            if (! vc.has("bottom_surface_filament")) config.bottom_surface_filament.value = 0;
+        }
     }
 
     // Clamp invalid extruders to the default extruder (with index 1).

@@ -159,6 +159,26 @@ ConfigOptionFloatOrPercent nozzle_aware_line_width(
     return result;
 }
 
+size_t physical_extruder_for_filament(const PrintConfig &print_config, unsigned int filament_id)
+{
+    if (filament_id == 0)
+        return 0;
+    const size_t direct         = (size_t)(filament_id - 1);
+    const size_t nozzle_count   = print_config.nozzle_diameter.values.size();
+    const size_t filament_count = print_config.filament_diameter.values.size();
+    // When the printer has at least as many nozzles as filaments, each filament has its own physical
+    // extruder (a toolchanger, or any printer without AMS sharing a nozzle), so the filament index
+    // already is the physical extruder. Only when more filaments share fewer nozzles (AMS) do we need
+    // the filament -> extruder assignment from filament_map.
+    if (filament_count <= nozzle_count)
+        return direct;
+    const std::vector<int> &fmap = print_config.filament_map.values;
+    if (filament_id <= fmap.size() && fmap[filament_id - 1] >= 1)
+        return (size_t)(fmap[filament_id - 1] - 1);
+    // filament_map not populated for this filament yet: best effort.
+    return direct < nozzle_count ? direct : 0;
+}
+
 // Adjust extrusion flow for new extrusion line spacing, maintaining the old spacing between extrusions.
 Flow Flow::with_spacing(float new_spacing) const
 {
@@ -249,21 +269,24 @@ Flow support_material_flow(const PrintObject *object, float layer_height)
 {
     const PrintConfig &print_config = object->print()->config();
     const bool per_feature = object->print()->default_region_config().enable_per_feature_filament.value;
+    const size_t physical_extruder = physical_extruder_for_filament(print_config, (unsigned int)object->config().support_filament.value);
     ConfigOptionFloatOrPercent width = (object->config().support_line_width.value > 0) ? object->config().support_line_width : object->config().line_width;
-    width = nozzle_aware_line_width(print_config, per_feature, width, (unsigned int)object->config().support_filament.value);
+    width = nozzle_aware_line_width(print_config, per_feature, width, (unsigned int)(physical_extruder + 1));
     return Flow::new_from_config_width(
         frSupportMaterial,
         // The width parameter accepted by new_from_config_width is of type ConfigOptionFloatOrPercent, the Flow class takes care of the percent to value substitution.
         width,
-        // if object->config().support_filament == 0 (which means to not trigger tool change, but use the current extruder instead), get_at will return the 0th component.
-        float(print_config.nozzle_diameter.get_at(object->config().support_filament-1)),
+        // Nozzle diameter of the physical extruder the support filament is mapped to.
+        float(print_config.nozzle_diameter.get_at(physical_extruder)),
         (layer_height > 0.f) ? layer_height : float(object->config().layer_height.value));
 }
 //BBS
 Flow support_transition_flow(const PrintObject* object)
 {
     //BBS: support transition of tree support is bridge flow
-    float dmr = float(object->print()->config().nozzle_diameter.get_at(object->config().support_filament - 1));
+    const PrintConfig &print_config = object->print()->config();
+    const size_t physical_extruder = physical_extruder_for_filament(print_config, (unsigned int)object->config().support_filament.value);
+    float dmr = float(print_config.nozzle_diameter.get_at(physical_extruder));
     return Flow::bridging_flow(dmr, dmr);
 }
 
@@ -271,14 +294,15 @@ Flow support_material_1st_layer_flow(const PrintObject *object, float layer_heig
 {
     const PrintConfig &print_config = object->print()->config();
     const bool per_feature = object->print()->default_region_config().enable_per_feature_filament.value;
+    const size_t physical_extruder = physical_extruder_for_filament(print_config, (unsigned int)object->config().support_filament.value);
     const auto &width = (print_config.initial_layer_line_width.value > 0) ? print_config.initial_layer_line_width : object->config().support_line_width;
     ConfigOptionFloatOrPercent eff_width = (width.value > 0) ? width : object->config().line_width;
-    eff_width = nozzle_aware_line_width(print_config, per_feature, eff_width, (unsigned int)object->config().support_filament.value);
+    eff_width = nozzle_aware_line_width(print_config, per_feature, eff_width, (unsigned int)(physical_extruder + 1));
     return Flow::new_from_config_width(
         frSupportMaterial,
         // The width parameter accepted by new_from_config_width is of type ConfigOptionFloatOrPercent, the Flow class takes care of the percent to value substitution.
         eff_width,
-        float(print_config.nozzle_diameter.get_at(object->config().support_filament-1)),
+        float(print_config.nozzle_diameter.get_at(physical_extruder)),
         (layer_height > 0.f) ? layer_height : float(print_config.initial_layer_print_height.value));
 }
 
@@ -286,14 +310,15 @@ Flow support_material_interface_flow(const PrintObject *object, float layer_heig
 {
     const PrintConfig &print_config = object->print()->config();
     const bool per_feature = object->print()->default_region_config().enable_per_feature_filament.value;
+    const size_t physical_extruder = physical_extruder_for_filament(print_config, (unsigned int)object->config().support_interface_filament.value);
     ConfigOptionFloatOrPercent width = (object->config().support_line_width > 0) ? object->config().support_line_width : object->config().line_width;
-    width = nozzle_aware_line_width(print_config, per_feature, width, (unsigned int)object->config().support_interface_filament.value);
+    width = nozzle_aware_line_width(print_config, per_feature, width, (unsigned int)(physical_extruder + 1));
     return Flow::new_from_config_width(
         frSupportMaterialInterface,
         // The width parameter accepted by new_from_config_width is of type ConfigOptionFloatOrPercent, the Flow class takes care of the percent to value substitution.
         width,
-        // if object->config().support_interface_filament == 0 (which means to not trigger tool change, but use the current extruder instead), get_at will return the 0th component.
-        float(print_config.nozzle_diameter.get_at(object->config().support_interface_filament-1)),
+        // Nozzle diameter of the physical extruder the support interface filament is mapped to.
+        float(print_config.nozzle_diameter.get_at(physical_extruder)),
         (layer_height > 0.f) ? layer_height : float(object->config().layer_height.value));
 }
 

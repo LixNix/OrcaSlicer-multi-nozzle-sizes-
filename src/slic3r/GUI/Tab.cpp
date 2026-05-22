@@ -5046,7 +5046,9 @@ if (is_marlin_flavor)
             optgroup->m_on_change = [this, extruder_idx](const t_config_option_key& opt_key, boost::any value)
             {
                 bool is_SEMM = m_config->opt_bool("single_extruder_multi_material");
-                if (is_SEMM && m_extruders_count > 1 && opt_key.find_first_of("nozzle_diameter") != std::string::npos)
+                bool is_BBL_multi_extruder = wxGetApp().preset_bundle->is_bbl_vendor() &&
+                    m_config->option<ConfigOptionFloats>("nozzle_diameter")->size() > 1;
+                if (is_SEMM && !is_BBL_multi_extruder && m_extruders_count > 1 && opt_key.find_first_of("nozzle_diameter") != std::string::npos)
                 {
                     SuppressBackgroundProcessingUpdate sbpu;
                     const double new_nd = boost::any_cast<double>(value);
