@@ -1929,19 +1929,32 @@ bool PartPlate::check_filament_printable(const DynamicPrintConfig &config, wxStr
     if (mode != fmmManual)
         return true;
 
+    const ConfigOptionStrings *filament_type_opt      = config.option<ConfigOptionStrings>("filament_type");
+    const ConfigOptionInts    *filament_printable_opt  = config.option<ConfigOptionInts>("filament_printable");
+    std::vector<int>           filament_map            = get_real_filament_maps(config);
+
     std::vector<int> used_filaments = get_extruders(true);  // 1 base
-    if (!used_filaments.empty()) {
-        for (auto filament_idx : used_filaments) {
-            int filament_id = filament_idx - 1;
-            std::string filament_type = config.option<ConfigOptionStrings>("filament_type")->values.at(filament_id);
-            int filament_printable_status = config.option<ConfigOptionInts>("filament_printable")->values.at(filament_id);
-            std::vector<int> filament_map  = get_real_filament_maps(config);
-            int extruder_idx = filament_map[filament_id] - 1;
-            if (!(filament_printable_status >> extruder_idx & 1)) {
-                wxString extruder_name = extruder_idx == 0 ? _L("left") : _L("right");
-                error_message  = wxString::Format(_L("The %s nozzle can not print %s."), extruder_name, filament_type);
-                return false;
-            }
+    for (auto filament_idx : used_filaments) {
+        int filament_id = filament_idx - 1;
+        // The plate's used-filament list can reference more filaments than the freshly applied
+        // printer config provides (e.g. right after switching to a printer that supports fewer
+        // filaments). Skip out-of-range indices instead of crashing with std::out_of_range; the
+        // filament list is reconciled right after the printer switch.
+        if (filament_id < 0 ||
+            !filament_type_opt      || filament_id >= (int) filament_type_opt->values.size() ||
+            !filament_printable_opt || filament_id >= (int) filament_printable_opt->values.size() ||
+            filament_id >= (int) filament_map.size())
+            continue;
+
+        const std::string &filament_type = filament_type_opt->values[filament_id];
+        int filament_printable_status = filament_printable_opt->values[filament_id];
+        int extruder_idx = filament_map[filament_id] - 1;
+        if (extruder_idx < 0 || extruder_idx >= 31)
+            continue; // invalid mapping; avoid undefined shift below
+        if (!(filament_printable_status >> extruder_idx & 1)) {
+            wxString extruder_name = extruder_idx == 0 ? _L("left") : _L("right");
+            error_message  = wxString::Format(_L("The %s nozzle can not print %s."), extruder_name, filament_type);
+            return false;
         }
     }
     return true;
